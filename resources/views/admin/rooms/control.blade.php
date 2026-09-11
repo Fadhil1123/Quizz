@@ -59,6 +59,7 @@
                                                 <input type="hidden" name="action_type" value="BUY">
                                                 <input type="hidden" name="team_id" value="{{ $team->id }}">
                                                 <input type="hidden" name="question_id" value="{{ $activeQuestion->masterQuestion->id }}">
+                                                <!-- PASTIKAN VALUE DI BAWAH INI ADALAH $activeQuestion->id -->
                                                 <input type="hidden" name="room_question_id" value="{{ $activeQuestion->id }}">
                                                 <button class="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-bold hover:bg-amber-500/30">Beli (-1x)</button>
                                             </form>

@@ -13,12 +13,10 @@ class StateController extends Controller
     {
         $room = Room::findOrFail($roomId);
 
-        // 1. Ambil Live Leaderboard (Diurutkan dari skor tertinggi)
         $teams = Team::where('room_id', $roomId)
             ->orderBy('current_score', 'desc')
             ->get(['id', 'name', 'current_score']);
 
-        // 2. Ambil Soal yang Sedang Aktif di Room Ini
         $activeRoomQuestion = RoomQuestion::where('room_id', $roomId)
             ->where('status', 'active')
             ->with('masterQuestion')
@@ -28,16 +26,19 @@ class StateController extends Controller
 
         if ($activeRoomQuestion) {
             $mq = $activeRoomQuestion->masterQuestion;
+            $buyerTeam = $activeRoomQuestion->buyer_team_id ? Team::find($activeRoomQuestion->buyer_team_id) : null;
+
             $activeQuestionData = [
                 'room_question_id' => $activeRoomQuestion->id,
                 'master_question_id' => $mq->id,
                 'question_text' => $mq->question_text,
                 'price' => $mq->price,
-                // KUNCI JAWABAN (answer_key) SENGADJA TIDAK DIMASUKKAN DEMI KEAMANAN
+                // Pastikan casting boolean ketat (1 / true -> true)
+                'is_bought' => (bool) $activeRoomQuestion->is_bought,
+                'buyer_team' => $buyerTeam ? $buyerTeam->name : 'Tim Peserta',
             ];
         }
 
-        // 3. Response JSON Ringkas untuk Short Polling
         return response()->json([
             'status' => 'success',
             'room' => [
