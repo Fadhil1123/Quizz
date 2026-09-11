@@ -43,14 +43,16 @@ class RoomController extends Controller
     {
         $request->validate(['room_question_id' => 'required|exists:room_questions,id']);
 
-        // Nonaktifkan soal aktif sebelumnya jika ada
         RoomQuestion::where('room_id', $roomId)->where('status', 'active')->update(['status' => 'unused']);
 
-        // Set soal baru menjadi active
         $rq = RoomQuestion::findOrFail($request->room_question_id);
-        $rq->update(['status' => 'active']);
+        $rq->update([
+            'status' => 'active',
+            'is_bought' => false,
+            'buyer_team_id' => null,
+        ]);
 
-        return redirect()->back()->with('success', 'Soal berhasil diaktifkan ke panggung!');
+        return redirect()->back()->with('success', 'Harga soal berhasil ditampilkan di panggung!');
     }
 
     // Method untuk Mengeksekusi Transaksi Poin
@@ -69,7 +71,14 @@ class RoomController extends Controller
         $rqId = $request->room_question_id;
 
         if ($action === 'BUY' && $teamId) {
+            // 1. Eksekusi pemotongan poin
             $scoreService->buyQuestion($roomId, $teamId, $questionId);
+
+            // 2. Update status terbeli langsung pada primary key room_questions
+            RoomQuestion::where('id', $rqId)->update([
+                'is_bought' => true,
+                'buyer_team_id' => $teamId,
+            ]);
         } elseif ($action === 'BUY_CORRECT' && $teamId) {
             $scoreService->rewardBuyCorrect($roomId, $teamId, $questionId);
             RoomQuestion::where('id', $rqId)->update(['status' => 'closed']);
@@ -82,7 +91,6 @@ class RoomController extends Controller
 
         return redirect()->back()->with('success', 'Aksi berhasil dieksekusi!');
     }
-
     public function store(Request $request)
     {
         $request->validate([

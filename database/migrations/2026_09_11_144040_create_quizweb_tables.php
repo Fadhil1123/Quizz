@@ -33,19 +33,21 @@ return new class extends Migration {
             $table->timestamps();
         });
 
-        Schema::create('room_questions', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('room_id')->constrained('rooms')->cascadeOnDelete();
-            $table->foreignId('master_question_id')->constrained('master_questions')->cascadeOnDelete();
-            $table->enum('status', ['unused', 'active', 'closed'])->default('unused');
-            $table->timestamps();
-        });
-
         Schema::create('teams', function (Blueprint $table) {
             $table->id();
             $table->foreignId('room_id')->constrained('rooms')->cascadeOnDelete();
             $table->string('name', 100);
             $table->integer('current_score')->default(1000);
+            $table->timestamps();
+        });
+
+        Schema::create('room_questions', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('room_id')->constrained('rooms')->cascadeOnDelete();
+            $table->foreignId('master_question_id')->constrained('master_questions')->cascadeOnDelete();
+            $table->enum('status', ['unused', 'active', 'closed'])->default('unused');
+            $table->boolean('is_bought')->default(false);
+            $table->foreignId('buyer_team_id')->nullable()->constrained('teams')->nullOnDelete();
             $table->timestamps();
         });
 
@@ -63,8 +65,8 @@ return new class extends Migration {
     public function down(): void
     {
         Schema::dropIfExists('score_logs');
-        Schema::dropIfExists('teams');
         Schema::dropIfExists('room_questions');
+        Schema::dropIfExists('teams');
         Schema::dropIfExists('master_questions');
         Schema::dropIfExists('users');
         Schema::dropIfExists('rooms');

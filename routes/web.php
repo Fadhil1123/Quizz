@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Admin\MasterQuestionController;
 use App\Http\Controllers\Admin\RoomController;
+use App\Http\Controllers\OperatorController;
 
 Route::get('/', function () {
     return redirect()->route('login');
@@ -25,9 +26,8 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
 
 // Group Route khusus Operator
 Route::middleware(['auth', 'role:operator'])->prefix('operator')->group(function () {
-    Route::get('/select-room', function () {
-        return 'Halaman Select Room Operator (Lanjut di Issue #6)';
-    });
+    Route::get('/select-room', [OperatorController::class, 'selectRoom'])->name('select-room');
+    Route::get('/stage/{id}', [OperatorController::class, 'stage'])->name('stage');
 });
 
 Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->group(function () {
