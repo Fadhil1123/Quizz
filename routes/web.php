@@ -18,6 +18,9 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
     Route::get('/rooms', function () {
         return 'Halaman Dashboard Admin Rooms (Lanjut di Issue #3)';
     });
+    Route::get('/rooms/{id}/control', [RoomController::class, 'control'])->name('rooms.control');
+    Route::post('/rooms/{id}/select-question', [RoomController::class, 'selectQuestion'])->name('rooms.select-question');
+    Route::post('/rooms/{id}/action', [RoomController::class, 'processAction'])->name('rooms.process-action');
 });
 
 // Group Route khusus Operator
