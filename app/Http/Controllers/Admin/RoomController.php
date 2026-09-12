@@ -10,6 +10,7 @@ use App\Models\RoomQuestion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Services\ScoreService;
+use Carbon\Carbon;
 
 class RoomController extends Controller
 {
@@ -38,24 +39,26 @@ class RoomController extends Controller
         return view('admin.rooms.control', compact('room', 'activeQuestion'));
     }
 
-    // Method untuk Memilih Soal menjadi AKTIF
+    // 1. Tampilkan Soal (Memicu Fase 1: Papar 180s)
     public function selectQuestion(Request $request, $roomId)
     {
         $request->validate(['room_question_id' => 'required|exists:room_questions,id']);
 
-        RoomQuestion::where('room_id', $roomId)->where('status', 'active')->update(['status' => 'unused']);
+        RoomQuestion::where('room_id', $roomId)->where('status', 'active')->update(['status' => 'unused', 'timer_phase' => 'none']);
 
         $rq = RoomQuestion::findOrFail($request->room_question_id);
         $rq->update([
             'status' => 'active',
             'is_bought' => false,
             'buyer_team_id' => null,
+            'timer_phase' => 'papar',
+            'timer_expires_at' => Carbon::now()->addSeconds(180), // 180 Detik
         ]);
 
-        return redirect()->back()->with('success', 'Harga soal berhasil ditampilkan di panggung!');
+        return redirect()->back()->with('success', 'Soal aktif! Timer Papar (180s) dimulai.');
     }
 
-    // Method untuk Mengeksekusi Transaksi Poin
+    // 2. Transaksi Aksi & Fase Timer
     public function processAction(Request $request, $roomId, ScoreService $scoreService)
     {
         $request->validate([
@@ -71,26 +74,61 @@ class RoomController extends Controller
         $rqId = $request->room_question_id;
 
         if ($action === 'BUY' && $teamId) {
-            // 1. Eksekusi pemotongan poin
             $scoreService->buyQuestion($roomId, $teamId, $questionId);
 
-            // 2. Update status terbeli langsung pada primary key room_questions
+            // Berpindah ke Fase 2: Menjawab (30s)
             RoomQuestion::where('id', $rqId)->update([
                 'is_bought' => true,
                 'buyer_team_id' => $teamId,
+                'timer_phase' => 'menjawab',
+                'timer_expires_at' => Carbon::now()->addSeconds(30), // 30 Detik
+            ]);
+        } elseif ($action === 'BUY_WRONG') {
+            // Pembeli Utama Salah -> Berpindah ke Fase 3: Mode Operan (10s)
+            RoomQuestion::where('id', $rqId)->update([
+                'timer_phase' => 'operan',
+                'timer_expires_at' => Carbon::now()->addSeconds(10), // 10 Detik
             ]);
         } elseif ($action === 'BUY_CORRECT' && $teamId) {
             $scoreService->rewardBuyCorrect($roomId, $teamId, $questionId);
-            RoomQuestion::where('id', $rqId)->update(['status' => 'closed']);
+            RoomQuestion::where('id', $rqId)->update(['status' => 'closed', 'timer_phase' => 'none']);
         } elseif ($action === 'PASS_CORRECT' && $teamId) {
             $scoreService->rewardPassCorrect($roomId, $teamId, $questionId);
-            RoomQuestion::where('id', $rqId)->update(['status' => 'closed']);
-        } elseif ($action === 'CLOSE') {
-            RoomQuestion::where('id', $rqId)->update(['status' => 'closed']);
+            RoomQuestion::where('id', $rqId)->update(['status' => 'closed', 'timer_phase' => 'none']);
+        } elseif ($action === 'CLOSE' || $action === 'PASS_WRONG') {
+            RoomQuestion::where('id', $rqId)->update(['status' => 'closed', 'timer_phase' => 'none']);
+        } elseif ($action === 'PASS_WRONG' || $action === 'CLOSE') {
+            // Tim perebut salah menjawab atau Admin memilih skip -> Soal otomatis ditutup
+            RoomQuestion::where('id', $rqId)->update([
+                'status' => 'closed',
+                'timer_phase' => 'none',
+            ]);
         }
 
         return redirect()->back()->with('success', 'Aksi berhasil dieksekusi!');
     }
+    // Method untuk Menyelesaikan Kuis
+    public function finishRoom($id)
+    {
+        $room = Room::findOrFail($id);
+
+        // Ubah status room menjadi finished
+        $room->update([
+            'status' => 'finished'
+        ]);
+
+        // Opsional: Tutup semua soal aktif jika ada yang tersisa di panggung
+        RoomQuestion::where('room_id', $id)
+            ->where('status', 'active')
+            ->update([
+                'status' => 'closed',
+                'timer_phase' => 'none'
+            ]);
+
+        return redirect()->back()->with('success', 'Kuis resmi SELESAI! Layar Proyektor menampilkan Papan Pemenang 🏆');
+    }
+
+    // Method untuk Mengeksekusi Transaksi Poin
     public function store(Request $request)
     {
         $request->validate([

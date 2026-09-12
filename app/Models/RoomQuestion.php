@@ -6,13 +6,18 @@ use Illuminate\Database\Eloquent\Model;
 
 class RoomQuestion extends Model
 {
-    // INI YANG SERING TERLEWAT: is_bought dan buyer_team_id WAJIB DITULIS DI SINI!
     protected $fillable = [
         'room_id', 
         'master_question_id', 
         'status', 
-        'is_bought',        // <- Pastikan ini ada
-        'buyer_team_id'     // <- Pastikan ini ada
+        'is_bought', 
+        'buyer_team_id',
+        'timer_phase',
+        'timer_expires_at'
+    ];
+
+    protected $casts = [
+        'timer_expires_at' => 'datetime',
     ];
 
     public function room() { return $this->belongsTo(Room::class); }

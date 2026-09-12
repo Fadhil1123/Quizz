@@ -48,6 +48,11 @@ return new class extends Migration {
             $table->enum('status', ['unused', 'active', 'closed'])->default('unused');
             $table->boolean('is_bought')->default(false);
             $table->foreignId('buyer_team_id')->nullable()->constrained('teams')->nullOnDelete();
+            
+            // KOLOM BARU UNTUK 3-PHASE TIMER BINDING PRD
+            $table->enum('timer_phase', ['papar', 'menjawab', 'operan', 'none'])->default('none');
+            $table->timestamp('timer_expires_at')->nullable();
+            
             $table->timestamps();
         });
 
