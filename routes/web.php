@@ -33,6 +33,9 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::get('/master-questions', [MasterQuestionController::class, 'index'])->name('master-questions.index');
     Route::post('/master-questions', [MasterQuestionController::class, 'store'])->name('master-questions.store');
     Route::delete('/master-questions/{id}', [MasterQuestionController::class, 'destroy'])->name('master-questions.destroy');
+    
+    // Route Reset Timer Soal
+    Route::post('/rooms/{id}/reset-timer', [RoomController::class, 'resetQuestionTimer'])->name('rooms.reset-timer');
 });
 
 // Group Route Khusus Operator

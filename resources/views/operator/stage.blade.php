@@ -52,8 +52,14 @@
     <script>
         const roomId = "{{ $room->id }}";
         const apiEndpoint = `/api/rooms/${roomId}/state`;
+        
+        // Flag pencegah memory leak
+        let isFinished = false;
 
         async function fetchRoomState() {
+            // Hentikan polling jika kuis sudah berstatus finished
+            if (isFinished) return;
+
             try {
                 const response = await fetch(apiEndpoint);
                 if (!response.ok) return;
@@ -61,8 +67,9 @@
                 const data = await response.json();
 
                 if (data.status === 'success') {
-                    // UTAMA: Cek jika status room FINISHED -> Langsung tampilkan Pemenang!
+                    // UTAMA: Cek jika status room FINISHED -> Langsung tampilkan Pemenang & kunci polling
                     if (data.room && data.room.status === 'finished') {
+                        isFinished = true;
                         renderWinnerOverlay(data.leaderboard || []);
                         return;
                     }
