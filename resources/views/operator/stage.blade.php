@@ -8,34 +8,52 @@
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between p-8 select-none">
     
-    <!-- Header -->
+    <!-- Header Stage -->
     <div class="flex justify-between items-center border-b border-slate-800/80 pb-6">
         <div>
             <span class="text-xs font-bold text-pink-500 tracking-widest uppercase">STAGE DISPLAY</span>
             <h1 class="text-3xl font-black tracking-tight text-white mt-1">{{ $room->name }}</h1>
         </div>
-        <div class="flex items-center gap-3">
-            <span class="flex h-3 w-3 relative">
-                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-            </span>
-            <span class="text-xs font-mono text-slate-400 uppercase tracking-wider">LIVE REFRESH</span>
+        
+        <div class="flex items-center gap-6">
+            <!-- Badge Indikator Paused -->
+            <div id="paused-indicator" class="hidden px-4 py-1.5 bg-amber-500/20 border border-amber-500/40 text-amber-300 font-extrabold text-sm rounded-full animate-pulse flex items-center gap-2">
+                <span>⏸️</span> WAKTU DIHENTIKAN
+            </div>
+
+            <!-- Global Timer Display (Total Waktu Soal 180s) -->
+            <div id="global-timer-container" class="hidden text-right bg-slate-900 border border-slate-800 px-5 py-2 rounded-2xl">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Sisa Total Waktu</span>
+                <span id="global-timer-seconds" class="font-mono font-black text-2xl text-pink-400">180s</span>
+            </div>
+
+            <!-- Live Status Indicator -->
+            <div class="flex items-center gap-2">
+                <span class="flex h-3 w-3 relative">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </span>
+                <span class="text-xs font-mono text-slate-400 uppercase tracking-wider">LIVE</span>
+            </div>
         </div>
     </div>
 
-    <!-- Main Section -->
+    <!-- Main Section: Kartu Soal Aktif -->
     <div class="my-auto py-8">
         <div id="question-card" class="bg-slate-900/80 border-2 border-slate-800 p-10 rounded-3xl shadow-2xl backdrop-blur-xl transition-all duration-500">
             <div id="question-content" class="space-y-6">
                 <div class="flex justify-between items-center">
                     <span id="phase-badge" class="px-4 py-1.5 bg-pink-500/20 text-pink-400 border border-pink-500/30 text-sm font-black rounded-full uppercase">Soal Aktif</span>
+                    
                     <div class="flex items-center gap-4">
-                        <div id="timer-badge" class="hidden px-5 py-2 bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono font-black text-2xl rounded-full animate-pulse">
-                            ⏱️ <span id="timer-seconds">0</span>s
+                        <!-- Sub-Phase Sub-Timer (Menjawab 30s / Operan 10s) -->
+                        <div id="phase-timer-badge" class="hidden px-5 py-2 bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono font-black text-2xl rounded-full animate-pulse">
+                            ⏱️ <span id="phase-timer-seconds">0</span>s
                         </div>
                         <span id="question-price" class="text-3xl font-black text-amber-400">--- Pts</span>
                     </div>
                 </div>
+
                 <div id="question-text">
                     <p class="text-3xl md:text-5xl font-bold leading-tight text-slate-100">Menunggu soal ditampilkan oleh Admin...</p>
                 </div>
@@ -43,21 +61,51 @@
         </div>
     </div>
 
-    <!-- Bottombar: Leaderboard -->
+    <!-- Bottombar: Leaderboard / Papan Skor Peserta -->
     <div class="border-t border-slate-800/80 pt-6">
         <h2 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Papan Skor Peserta</h2>
         <div id="leaderboard-container" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
     </div>
 
+    <!-- SCRIPT HYBRID POLLING + INTERPOLATION COUNTDOWN -->
     <script>
         const roomId = "{{ $room->id }}";
         const apiEndpoint = `/api/rooms/${roomId}/state`;
-        
-        // Flag pencegah memory leak
-        let isFinished = false;
 
+        let isFinished = false;
+        let isPaused = false;
+        let localGlobalRem = 0;
+        let localPhaseRem = 0;
+        let currentRoomQuestionId = null;
+        let currentTimerPhase = null;
+
+        function toSeconds(value) {
+            const seconds = Number.parseInt(String(value).replace(/s/gi, ''), 10);
+            return Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+        }
+
+        function formatSeconds(value) {
+            return `${toSeconds(value)}s`;
+        }
+
+        // LOCAL INTERPOLATION COUNTDOWN (Jalan per 1000ms secara mulus)
+        setInterval(() => {
+            if (!isPaused && !isFinished) {
+                if (localGlobalRem > 0) {
+                    localGlobalRem--;
+                    const globalEl = document.getElementById('global-timer-seconds');
+                    if (globalEl) globalEl.innerText = formatSeconds(localGlobalRem);
+                }
+                if (localPhaseRem > 0) {
+                    localPhaseRem--;
+                    const phaseEl = document.getElementById('phase-timer-seconds');
+                    if (phaseEl) phaseEl.innerText = toSeconds(localPhaseRem);
+                }
+            }
+        }, 1000);
+
+        // FETCH STATE POLLING (Re-sync dari server per 300ms)
         async function fetchRoomState() {
-            // Hentikan polling jika kuis sudah berstatus finished
             if (isFinished) return;
 
             try {
@@ -67,7 +115,6 @@
                 const data = await response.json();
 
                 if (data.status === 'success') {
-                    // UTAMA: Cek jika status room FINISHED -> Langsung tampilkan Pemenang & kunci polling
                     if (data.room && data.room.status === 'finished') {
                         isFinished = true;
                         renderWinnerOverlay(data.leaderboard || []);
@@ -86,19 +133,54 @@
             const textEl = document.getElementById('question-text');
             const priceEl = document.getElementById('question-price');
             const cardEl = document.getElementById('question-card');
-            const timerBadge = document.getElementById('timer-badge');
-            const timerSeconds = document.getElementById('timer-seconds');
             const phaseBadge = document.getElementById('phase-badge');
+            
+            const globalContainer = document.getElementById('global-timer-container');
+            const globalSeconds = document.getElementById('global-timer-seconds');
+            const phaseTimerBadge = document.getElementById('phase-timer-badge');
+            const phaseTimerSeconds = document.getElementById('phase-timer-seconds');
+            const pausedIndicator = document.getElementById('paused-indicator');
 
             if (activeQuestion) {
+                const isSameRunningTimer = currentRoomQuestionId === activeQuestion.room_question_id
+                    && currentTimerPhase === activeQuestion.timer_phase
+                    && !isPaused
+                    && !activeQuestion.is_paused;
+                const serverGlobalRem = toSeconds(activeQuestion.global_remaining_seconds);
+                const serverPhaseRem = toSeconds(activeQuestion.phase_remaining_seconds);
+
+                // Jangan biarkan polling dengan nilai integer yang masih lebih besar
+                // menghidupkan kembali angka countdown yang sudah turun di browser.
+                isPaused = activeQuestion.is_paused;
+                localGlobalRem = isSameRunningTimer
+                    ? Math.min(localGlobalRem, serverGlobalRem)
+                    : serverGlobalRem;
+                localPhaseRem = isSameRunningTimer
+                    ? Math.min(localPhaseRem, serverPhaseRem)
+                    : serverPhaseRem;
+                currentRoomQuestionId = activeQuestion.room_question_id;
+                currentTimerPhase = activeQuestion.timer_phase;
+
                 priceEl.innerText = `${activeQuestion.price} Pts`;
-                
-                if (timerBadge && timerSeconds) {
-                    timerBadge.classList.remove('hidden');
-                    timerSeconds.innerText = activeQuestion.remaining_seconds ?? 0;
+
+                // Update Display Global Timer
+                if (globalContainer && globalSeconds) {
+                    globalContainer.classList.remove('hidden');
+                    globalSeconds.innerText = formatSeconds(localGlobalRem);
                 }
 
+                // Update Indicator Paused
+                if (pausedIndicator) {
+                    if (isPaused) {
+                        pausedIndicator.classList.remove('hidden');
+                    } else {
+                        pausedIndicator.classList.add('hidden');
+                    }
+                }
+
+                // Render per Fase
                 if (activeQuestion.timer_phase === 'papar') {
+                    if (phaseTimerBadge) phaseTimerBadge.classList.add('hidden');
                     phaseBadge.innerText = "FASE 1: PAPAR SOAL";
                     phaseBadge.className = "px-4 py-1.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 text-sm font-black rounded-full uppercase";
                     textEl.innerHTML = `
@@ -110,7 +192,12 @@
                         </div>
                     `;
                     cardEl.className = "bg-slate-900/80 border-2 border-slate-800 p-10 rounded-3xl shadow-2xl backdrop-blur-xl transition-all duration-500";
+                
                 } else if (activeQuestion.timer_phase === 'menjawab') {
+                    if (phaseTimerBadge && phaseTimerSeconds) {
+                        phaseTimerBadge.classList.remove('hidden');
+                        phaseTimerSeconds.innerText = toSeconds(localPhaseRem);
+                    }
                     phaseBadge.innerText = "FASE 2: WAKTU MENJAWAB";
                     phaseBadge.className = "px-4 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 text-sm font-black rounded-full uppercase";
                     textEl.innerHTML = `
@@ -120,7 +207,12 @@
                         </div>
                     `;
                     cardEl.className = "bg-pink-950/40 border-2 border-pink-500 p-10 rounded-3xl shadow-2xl backdrop-blur-xl transition-all duration-500 scale-[1.02]";
+                
                 } else if (activeQuestion.timer_phase === 'operan') {
+                    if (phaseTimerBadge && phaseTimerSeconds) {
+                        phaseTimerBadge.classList.remove('hidden');
+                        phaseTimerSeconds.innerText = toSeconds(localPhaseRem);
+                    }
                     phaseBadge.innerText = "FASE 3: MODE OPERAN REBUTAN ⚡";
                     phaseBadge.className = "px-4 py-1.5 bg-rose-500/20 text-rose-400 border border-rose-500/30 text-sm font-black rounded-full uppercase animate-bounce";
                     textEl.innerHTML = `
@@ -132,7 +224,15 @@
                     cardEl.className = "bg-rose-950/40 border-2 border-rose-500 p-10 rounded-3xl shadow-2xl backdrop-blur-xl transition-all duration-500";
                 }
             } else {
-                if (timerBadge) timerBadge.classList.add('hidden');
+                if (globalContainer) globalContainer.classList.add('hidden');
+                if (phaseTimerBadge) phaseTimerBadge.classList.add('hidden');
+                if (pausedIndicator) pausedIndicator.classList.add('hidden');
+
+                localGlobalRem = 0;
+                localPhaseRem = 0;
+                currentRoomQuestionId = null;
+                currentTimerPhase = null;
+                
                 phaseBadge.innerText = "SOAL AKTIF";
                 phaseBadge.className = "px-4 py-1.5 bg-pink-500/20 text-pink-400 border border-pink-500/30 text-sm font-black rounded-full uppercase";
                 textEl.innerHTML = `<p class="text-3xl md:text-5xl font-bold leading-tight text-slate-100">Menunggu soal ditampilkan oleh Admin...</p>`;

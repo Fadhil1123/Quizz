@@ -3,34 +3,35 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Room;
 use App\Models\MasterQuestion;
-use App\Models\Team;
+use App\Models\Room;
 use App\Models\RoomQuestion;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use App\Models\Team;
 use App\Services\ScoreService;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class RoomController extends Controller
 {
     public function index()
     {
         $rooms = Room::with('teams')->latest()->get();
+
         return view('admin.rooms.index', compact('rooms'));
     }
 
     public function create()
     {
         $masterQuestions = MasterQuestion::all();
+
         return view('admin.rooms.create', compact('masterQuestions'));
     }
 
     public function control($id)
     {
         $room = Room::with(['teams', 'roomQuestions.masterQuestion'])->findOrFail($id);
-        
-        // Soal yang sedang aktif
+
         $activeQuestion = RoomQuestion::where('room_id', $id)
             ->where('status', 'active')
             ->with('masterQuestion')
@@ -39,7 +40,7 @@ class RoomController extends Controller
         return view('admin.rooms.control', compact('room', 'activeQuestion'));
     }
 
-    // 1. Tampilkan Soal (Memicu Fase 1: Papar 180s)
+    // 1. Tampilkan Soal (Memicu Global Timer 180s + 2s Buffer)
     public function selectQuestion(Request $request, $roomId)
     {
         $request->validate(['room_question_id' => 'required|exists:room_questions,id']);
@@ -47,15 +48,21 @@ class RoomController extends Controller
         RoomQuestion::where('room_id', $roomId)->where('status', 'active')->update(['status' => 'unused', 'timer_phase' => 'none']);
 
         $rq = RoomQuestion::findOrFail($request->room_question_id);
+        $now = Carbon::now();
+
         $rq->update([
             'status' => 'active',
             'is_bought' => false,
             'buyer_team_id' => null,
             'timer_phase' => 'papar',
-            'timer_expires_at' => Carbon::now()->addSeconds(180), // 180 Detik
+            'is_paused' => false,
+            'paused_global_remaining' => null,
+            'paused_phase_remaining' => null,
+            'global_timer_expires_at' => $now->copy()->addSeconds(182), // 180s + 2s Buffer Latensi
+            'timer_expires_at' => $now->copy()->addSeconds(182),
         ]);
 
-        return redirect()->back()->with('success', 'Soal aktif! Timer Papar (180s) dimulai.');
+        return redirect()->back()->with('success', 'Soal aktif! Global Timer (180s) dimulai.');
     }
 
     // 2. Transaksi Aksi & Fase Timer
@@ -76,18 +83,29 @@ class RoomController extends Controller
         if ($action === 'BUY' && $teamId) {
             $scoreService->buyQuestion($roomId, $teamId, $questionId);
 
-            // Berpindah ke Fase 2: Menjawab (30s)
+            // Fase 2: Menjawab (30s + 2s Buffer Latensi)
             RoomQuestion::where('id', $rqId)->update([
                 'is_bought' => true,
                 'buyer_team_id' => $teamId,
                 'timer_phase' => 'menjawab',
-                'timer_expires_at' => Carbon::now()->addSeconds(30), // 30 Detik
+                'timer_expires_at' => Carbon::now()->addSeconds(32),
             ]);
         } elseif ($action === 'BUY_WRONG') {
-            // Pembeli Utama Salah -> Berpindah ke Fase 3: Mode Operan (10s)
-            RoomQuestion::where('id', $rqId)->update([
+            $roomQuestion = RoomQuestion::findOrFail($rqId);
+            $now = Carbon::now();
+            $globalRemaining = $roomQuestion->is_paused
+                ? ($roomQuestion->paused_global_remaining ?? 0)
+                : max(0, $now->diffInSeconds($roomQuestion->global_timer_expires_at, false));
+
+            // Fase 3: Operan Rebutan (10 detik). Jika sebelumnya pause,
+            // transisi ini juga harus mengaktifkan kembali timer.
+            $roomQuestion->update([
                 'timer_phase' => 'operan',
-                'timer_expires_at' => Carbon::now()->addSeconds(10), // 10 Detik
+                'is_paused' => false,
+                'global_timer_expires_at' => $now->copy()->addSeconds($globalRemaining),
+                'timer_expires_at' => $now->copy()->addSeconds(10),
+                'paused_global_remaining' => null,
+                'paused_phase_remaining' => null,
             ]);
         } elseif ($action === 'BUY_CORRECT' && $teamId) {
             $scoreService->rewardBuyCorrect($roomId, $teamId, $questionId);
@@ -96,55 +114,108 @@ class RoomController extends Controller
             $scoreService->rewardPassCorrect($roomId, $teamId, $questionId);
             RoomQuestion::where('id', $rqId)->update(['status' => 'closed', 'timer_phase' => 'none']);
         } elseif ($action === 'CLOSE' || $action === 'PASS_WRONG') {
-            // Tim perebut salah menjawab atau Admin memilih skip/tutup -> Soal otomatis ditutup
             RoomQuestion::where('id', $rqId)->update(['status' => 'closed', 'timer_phase' => 'none']);
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json(['status' => 'success', 'message' => 'Aksi berhasil dieksekusi!']);
         }
 
         return redirect()->back()->with('success', 'Aksi berhasil dieksekusi!');
     }
 
-    // 3. Reset Timer Darurat (Emergency Reset Ke 180s)
-    public function resetQuestionTimer(Request $request, $roomId)
+    // 3. Pause Timer
+    public function pauseTimer(Request $request, $roomId)
     {
-        $request->validate([
-            'room_question_id' => 'required|exists:room_questions,id',
-        ]);
-
+        $request->validate(['room_question_id' => 'required|exists:room_questions,id']);
         $rq = RoomQuestion::findOrFail($request->room_question_id);
 
-        // Kembalikan ke Fase 1 Papar (180 Detik) & bersihkan buyer_team
+        if (! $rq->is_paused) {
+            $now = Carbon::now();
+            $globalRem = $rq->global_timer_expires_at ? max(0, $now->diffInSeconds($rq->global_timer_expires_at, false)) : 0;
+            $phaseRem = $rq->timer_expires_at ? max(0, $now->diffInSeconds($rq->timer_expires_at, false)) : 0;
+
+            $rq->update([
+                'is_paused' => true,
+                'paused_global_remaining' => $globalRem,
+                'paused_phase_remaining' => $phaseRem,
+            ]);
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json(['status' => 'success', 'message' => 'Timer berhasil di-PAUSE.']);
+        }
+
+        return redirect()->back()->with('success', 'Timer berhasil di-PAUSE ⏸️');
+    }
+
+    // 4. Resume Timer
+    public function resumeTimer(Request $request, $roomId)
+    {
+        $request->validate(['room_question_id' => 'required|exists:room_questions,id']);
+        $rq = RoomQuestion::findOrFail($request->room_question_id);
+
+        if ($rq->is_paused) {
+            $now = Carbon::now();
+            // Tambahkan +2 detik buffer saat di-resume
+            $newGlobalExpires = $now->copy()->addSeconds(($rq->paused_global_remaining ?? 0) + 2);
+            $newPhaseExpires = $now->copy()->addSeconds(($rq->paused_phase_remaining ?? 0) + 2);
+
+            $rq->update([
+                'is_paused' => false,
+                'global_timer_expires_at' => $newGlobalExpires,
+                'timer_expires_at' => $newPhaseExpires,
+                'paused_global_remaining' => null,
+                'paused_phase_remaining' => null,
+            ]);
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json(['status' => 'success', 'message' => 'Timer dilanjutkan.']);
+        }
+
+        return redirect()->back()->with('success', 'Timer dilanjutkan ▶️');
+    }
+
+    // 5. Reset Timer Darurat (Reset Total ke 180s + 2s Buffer)
+    public function resetQuestionTimer(Request $request, $roomId)
+    {
+        $request->validate(['room_question_id' => 'required|exists:room_questions,id']);
+        $rq = RoomQuestion::findOrFail($request->room_question_id);
+        $now = Carbon::now();
+
         $rq->update([
             'is_bought' => false,
             'buyer_team_id' => null,
             'timer_phase' => 'papar',
-            'timer_expires_at' => Carbon::now()->addSeconds(180),
+            'is_paused' => false,
+            'paused_global_remaining' => null,
+            'paused_phase_remaining' => null,
+            'global_timer_expires_at' => $now->copy()->addSeconds(182),
+            'timer_expires_at' => $now->copy()->addSeconds(182),
         ]);
 
-        return redirect()->back()->with('success', 'Timer soal berhasil di-reset kembali ke Fase Papar (180s)!');
+        if ($request->expectsJson()) {
+            return response()->json(['status' => 'success', 'message' => 'Timer soal di-reset kembali ke 180s.']);
+        }
+
+        return redirect()->back()->with('success', 'Timer soal di-reset kembali ke 180s!');
     }
 
-    // 4. Method untuk Menyelesaikan Kuis
+    // 6. Selesaikan Kuis
     public function finishRoom($id)
     {
         $room = Room::findOrFail($id);
+        $room->update(['status' => 'finished']);
 
-        // Ubah status room menjadi finished
-        $room->update([
-            'status' => 'finished'
-        ]);
-
-        // Tutup semua soal aktif jika ada yang tersisa di panggung
         RoomQuestion::where('room_id', $id)
             ->where('status', 'active')
-            ->update([
-                'status' => 'closed',
-                'timer_phase' => 'none'
-            ]);
+            ->update(['status' => 'closed', 'timer_phase' => 'none']);
 
-        return redirect()->back()->with('success', 'Kuis resmi SELESAI! Layar Proyektor menampilkan Papan Pemenang 🏆');
+        return redirect()->back()->with('success', 'Kuis resmi SELESAI! 🏆');
     }
 
-    // 5. Method untuk Membuat Room Baru
+    // 7. Simpan Room Baru
     public function store(Request $request)
     {
         $request->validate([
@@ -156,15 +227,13 @@ class RoomController extends Controller
         ]);
 
         DB::transaction(function () use ($request) {
-            // 1. Buat Room
             $room = Room::create([
                 'name' => $request->name,
                 'status' => 'waiting',
             ]);
 
-            // 2. Buat Tim
             foreach ($request->teams as $teamName) {
-                if (!empty(trim($teamName))) {
+                if (! empty(trim($teamName))) {
                     Team::create([
                         'room_id' => $room->id,
                         'name' => $teamName,
@@ -173,7 +242,6 @@ class RoomController extends Controller
                 }
             }
 
-            // 3. Assign Soal dari Master Bank
             foreach ($request->questions as $questionId) {
                 RoomQuestion::create([
                     'room_id' => $room->id,
