@@ -26,7 +26,7 @@ class RoomController extends Controller
         return view('admin.rooms.create', compact('masterQuestions'));
     }
 
-        public function control($id)
+    public function control($id)
     {
         $room = Room::with(['teams', 'roomQuestions.masterQuestion'])->findOrFail($id);
         
@@ -96,18 +96,34 @@ class RoomController extends Controller
             $scoreService->rewardPassCorrect($roomId, $teamId, $questionId);
             RoomQuestion::where('id', $rqId)->update(['status' => 'closed', 'timer_phase' => 'none']);
         } elseif ($action === 'CLOSE' || $action === 'PASS_WRONG') {
+            // Tim perebut salah menjawab atau Admin memilih skip/tutup -> Soal otomatis ditutup
             RoomQuestion::where('id', $rqId)->update(['status' => 'closed', 'timer_phase' => 'none']);
-        } elseif ($action === 'PASS_WRONG' || $action === 'CLOSE') {
-            // Tim perebut salah menjawab atau Admin memilih skip -> Soal otomatis ditutup
-            RoomQuestion::where('id', $rqId)->update([
-                'status' => 'closed',
-                'timer_phase' => 'none',
-            ]);
         }
 
         return redirect()->back()->with('success', 'Aksi berhasil dieksekusi!');
     }
-    // Method untuk Menyelesaikan Kuis
+
+    // 3. Reset Timer Darurat (Emergency Reset Ke 180s)
+    public function resetQuestionTimer(Request $request, $roomId)
+    {
+        $request->validate([
+            'room_question_id' => 'required|exists:room_questions,id',
+        ]);
+
+        $rq = RoomQuestion::findOrFail($request->room_question_id);
+
+        // Kembalikan ke Fase 1 Papar (180 Detik) & bersihkan buyer_team
+        $rq->update([
+            'is_bought' => false,
+            'buyer_team_id' => null,
+            'timer_phase' => 'papar',
+            'timer_expires_at' => Carbon::now()->addSeconds(180),
+        ]);
+
+        return redirect()->back()->with('success', 'Timer soal berhasil di-reset kembali ke Fase Papar (180s)!');
+    }
+
+    // 4. Method untuk Menyelesaikan Kuis
     public function finishRoom($id)
     {
         $room = Room::findOrFail($id);
@@ -117,7 +133,7 @@ class RoomController extends Controller
             'status' => 'finished'
         ]);
 
-        // Opsional: Tutup semua soal aktif jika ada yang tersisa di panggung
+        // Tutup semua soal aktif jika ada yang tersisa di panggung
         RoomQuestion::where('room_id', $id)
             ->where('status', 'active')
             ->update([
@@ -128,7 +144,7 @@ class RoomController extends Controller
         return redirect()->back()->with('success', 'Kuis resmi SELESAI! Layar Proyektor menampilkan Papan Pemenang 🏆');
     }
 
-    // Method untuk Mengeksekusi Transaksi Poin
+    // 5. Method untuk Membuat Room Baru
     public function store(Request $request)
     {
         $request->validate([

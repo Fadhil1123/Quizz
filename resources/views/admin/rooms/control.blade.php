@@ -130,6 +130,17 @@
                                 @endforeach
                             </div>
 
+                            <!-- Tombol Emergency Reset Timer (Hanya muncul saat ada soal aktif) -->
+                            @if($activeQuestion)
+                                <form action="{{ route('admin.rooms.reset-timer', $room->id) }}" method="POST" class="pt-2" onsubmit="return confirm('Apakah Anda yakin ingin mereset timer soal ini kembali ke awal (180s)?')">
+                                    @csrf
+                                    <input type="hidden" name="room_question_id" value="{{ $activeQuestion->id }}">
+                                    <button class="w-full py-2 bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 rounded-xl text-xs font-bold transition-all">
+                                        🔄 Reset Timer Soal Ke Awal (180s)
+                                    </button>
+                                </form>
+                            @endif
+
                             <!-- Tombol Tutup / Hangus -->
                             <form action="/admin/rooms/{{ $room->id }}/action" method="POST" class="pt-2">
                                 @csrf
