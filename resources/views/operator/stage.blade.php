@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stage Display - {{ $room->name }}</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    @vite('resources/js/app.js')
+    
+    <!-- CDN Pusher & Laravel Echo untuk Deployment Online -->
+    <script src="https://js.pusher.com/8.0.1/pusher.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/laravel-echo@1.15.3/dist/echo.iife.js"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between p-8 select-none">
     
@@ -34,7 +37,7 @@
                     <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
                 </span>
-                <span class="text-xs font-mono text-slate-400 uppercase tracking-wider">REVERB LIVE</span>
+                <span class="text-xs font-mono text-slate-400 uppercase tracking-wider">PUSHER LIVE</span>
             </div>
         </div>
     </div>
@@ -47,7 +50,7 @@
                     <span id="phase-badge" class="px-4 py-1.5 bg-pink-500/20 text-pink-400 border border-pink-500/30 text-sm font-black rounded-full uppercase">Soal Aktif</span>
                     
                     <div class="flex items-center gap-4">
-                        <!-- Sub-Phase Sub-Timer (Menjawab 33s / Operan 13s) -->
+                        <!-- Sub-Phase Sub-Timer (Menjawab 30s / Operan 10s) -->
                         <div id="phase-timer-badge" class="hidden px-5 py-2 bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono font-black text-2xl rounded-full animate-pulse">
                             ⏱️ <span id="phase-timer-seconds">0</span>s
                         </div>
@@ -68,7 +71,7 @@
         <div id="leaderboard-container" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
     </div>
 
-    <script type="module">
+    <script>
         const roomId = "{{ $room->id }}";
         
         let isFinished = false;
@@ -279,12 +282,22 @@
         // LOAD STATE AWAL
         loadInitialState();
 
-        // CONNECT TO PUBLIC CHANNEL
-        console.log('Echo listening on channel: stage-room.' + roomId);
+        // 🟢 INISIALISASI PUSHER & LARAVEL ECHO UNTUK DEPLOYMENT ONLINE
+        window.Pusher = Pusher;
+
+        window.Echo = new Echo({
+            broadcaster: 'pusher',
+            key: "{{ env('PUSHER_APP_KEY') }}",
+            cluster: "{{ env('PUSHER_APP_CLUSTER', 'ap1') }}",
+            forceTLS: true
+        });
+
+        // LISTEN BROADCAST VIA PUSHER
+        console.log('Echo listening via Pusher on channel: stage-room.' + roomId);
 
         window.Echo.channel(`stage-room.${roomId}`)
             .listen('.room.state.updated', (e) => {
-                console.log('[REVERB BROADCAST RECEIVED]:', e);
+                console.log('⚡ [PUSHER BROADCAST RECEIVED]:', e);
                 if (e && e.payload) {
                     handleStateUpdate(e.payload);
                 }
