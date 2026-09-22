@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Events\RoomStateUpdated;
+use App\Http\Controllers\Api\StateController;
 use App\Http\Controllers\Controller;
 use App\Models\MasterQuestion;
 use App\Models\Room;
@@ -62,6 +64,12 @@ class RoomController extends Controller
             'timer_expires_at' => $now->copy()->addSeconds(182),
         ]);
 
+        $this->broadcastRoomState($roomId);
+
+        if ($request->expectsJson()) {
+            return response()->json(['status' => 'success', 'message' => 'Soal aktif! Global Timer (180s) dimulai.']);
+        }
+
         return redirect()->back()->with('success', 'Soal aktif! Global Timer (180s) dimulai.');
     }
 
@@ -83,12 +91,12 @@ class RoomController extends Controller
         if ($action === 'BUY' && $teamId) {
             $scoreService->buyQuestion($roomId, $teamId, $questionId);
 
-            // Fase 2: Menjawab (30s + 2s Buffer Latensi)
+            // Fase 2: Menjawab (33 detik)
             RoomQuestion::where('id', $rqId)->update([
                 'is_bought' => true,
                 'buyer_team_id' => $teamId,
                 'timer_phase' => 'menjawab',
-                'timer_expires_at' => Carbon::now()->addSeconds(32),
+                'timer_expires_at' => Carbon::now()->addSeconds(33),
             ]);
         } elseif ($action === 'BUY_WRONG') {
             $roomQuestion = RoomQuestion::findOrFail($rqId);
@@ -97,13 +105,13 @@ class RoomController extends Controller
                 ? ($roomQuestion->paused_global_remaining ?? 0)
                 : max(0, $now->diffInSeconds($roomQuestion->global_timer_expires_at, false));
 
-            // Fase 3: Operan Rebutan (10 detik). Jika sebelumnya pause,
+            // Fase 3: Operan Rebutan (13 detik). Jika sebelumnya pause,
             // transisi ini juga harus mengaktifkan kembali timer.
             $roomQuestion->update([
                 'timer_phase' => 'operan',
                 'is_paused' => false,
                 'global_timer_expires_at' => $now->copy()->addSeconds($globalRemaining),
-                'timer_expires_at' => $now->copy()->addSeconds(10),
+                'timer_expires_at' => $now->copy()->addSeconds(13),
                 'paused_global_remaining' => null,
                 'paused_phase_remaining' => null,
             ]);
@@ -116,6 +124,8 @@ class RoomController extends Controller
         } elseif ($action === 'CLOSE' || $action === 'PASS_WRONG') {
             RoomQuestion::where('id', $rqId)->update(['status' => 'closed', 'timer_phase' => 'none']);
         }
+
+        $this->broadcastRoomState($roomId);
 
         if ($request->expectsJson()) {
             return response()->json(['status' => 'success', 'message' => 'Aksi berhasil dieksekusi!']);
@@ -141,6 +151,8 @@ class RoomController extends Controller
                 'paused_phase_remaining' => $phaseRem,
             ]);
         }
+
+        $this->broadcastRoomState($roomId);
 
         if ($request->expectsJson()) {
             return response()->json(['status' => 'success', 'message' => 'Timer berhasil di-PAUSE.']);
@@ -170,6 +182,8 @@ class RoomController extends Controller
             ]);
         }
 
+        $this->broadcastRoomState($roomId);
+
         if ($request->expectsJson()) {
             return response()->json(['status' => 'success', 'message' => 'Timer dilanjutkan.']);
         }
@@ -195,6 +209,8 @@ class RoomController extends Controller
             'timer_expires_at' => $now->copy()->addSeconds(182),
         ]);
 
+        $this->broadcastRoomState($roomId);
+
         if ($request->expectsJson()) {
             return response()->json(['status' => 'success', 'message' => 'Timer soal di-reset kembali ke 180s.']);
         }
@@ -203,7 +219,7 @@ class RoomController extends Controller
     }
 
     // 6. Selesaikan Kuis
-    public function finishRoom($id)
+    public function finishRoom(Request $request, $id)
     {
         $room = Room::findOrFail($id);
         $room->update(['status' => 'finished']);
@@ -211,6 +227,12 @@ class RoomController extends Controller
         RoomQuestion::where('room_id', $id)
             ->where('status', 'active')
             ->update(['status' => 'closed', 'timer_phase' => 'none']);
+
+        $this->broadcastRoomState($id);
+
+        if ($request->expectsJson()) {
+            return response()->json(['status' => 'success', 'message' => 'Kuis resmi SELESAI! 🏆']);
+        }
 
         return redirect()->back()->with('success', 'Kuis resmi SELESAI! 🏆');
     }
@@ -252,5 +274,23 @@ class RoomController extends Controller
         });
 
         return redirect()->route('admin.rooms.index')->with('success', 'Ruangan kuis berhasil dibuat!');
+    }
+
+    /**
+     * Memancarkan data kuis terbaru ke WebSocket Laravel Reverb secara otomatis.
+     */
+    private function broadcastRoomState($roomId)
+    {
+        try {
+            $stateController = new StateController;
+            $response = $stateController->getState($roomId);
+            $data = json_decode($response->getContent(), true);
+
+            if (isset($data['status']) && $data['status'] === 'success') {
+                broadcast(new RoomStateUpdated($roomId, $data));
+            }
+        } catch (\Exception $e) {
+            \Log::error('Failed to broadcast Reverb event: '.$e->getMessage());
+        }
     }
 }

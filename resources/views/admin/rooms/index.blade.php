@@ -17,7 +17,7 @@
             </div>
             <div class="flex items-center gap-3">
                 <a href="{{ route('admin.master-questions.index') }}" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 transition-all">
-                    📚 Master Bank Soal
+                    Master Bank Soal
                 </a>
                 <a href="{{ route('admin.rooms.create') }}" class="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs rounded-xl shadow transition-all">
                     + Buat Room Baru
@@ -48,7 +48,7 @@
 
                     <div class="pt-4 border-t border-slate-800/80 flex gap-2">
                         <a href="{{ route('admin.rooms.control', $room->id) }}" class="w-full text-center py-2.5 bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs rounded-xl shadow transition-all">
-                            Masuk Control Center 🎛️
+                            Masuk Control Center
                         </a>
                     </div>
                 </div>

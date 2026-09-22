@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stage Display - {{ $room->name }}</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    @vite('resources/js/app.js')
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between p-8 select-none">
     
     <!-- Header Stage -->
     <div class="flex justify-between items-center border-b border-slate-800/80 pb-6">
         <div>
-            <span class="text-xs font-bold text-pink-500 tracking-widest uppercase">STAGE DISPLAY</span>
+            <span class="text-xs font-bold text-pink-500 tracking-widest uppercase">STAGE DISPLAY (ZERO-LATENCY)</span>
             <h1 class="text-3xl font-black tracking-tight text-white mt-1">{{ $room->name }}</h1>
         </div>
         
@@ -33,7 +34,7 @@
                     <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
                 </span>
-                <span class="text-xs font-mono text-slate-400 uppercase tracking-wider">LIVE</span>
+                <span class="text-xs font-mono text-slate-400 uppercase tracking-wider">REVERB LIVE</span>
             </div>
         </div>
     </div>
@@ -46,7 +47,7 @@
                     <span id="phase-badge" class="px-4 py-1.5 bg-pink-500/20 text-pink-400 border border-pink-500/30 text-sm font-black rounded-full uppercase">Soal Aktif</span>
                     
                     <div class="flex items-center gap-4">
-                        <!-- Sub-Phase Sub-Timer (Menjawab 30s / Operan 10s) -->
+                        <!-- Sub-Phase Sub-Timer (Menjawab 33s / Operan 13s) -->
                         <div id="phase-timer-badge" class="hidden px-5 py-2 bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono font-black text-2xl rounded-full animate-pulse">
                             ⏱️ <span id="phase-timer-seconds">0</span>s
                         </div>
@@ -67,66 +68,59 @@
         <div id="leaderboard-container" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
     </div>
 
-    <!-- SCRIPT HYBRID POLLING + INTERPOLATION COUNTDOWN -->
-    <script>
+    <script type="module">
         const roomId = "{{ $room->id }}";
-        const apiEndpoint = `/api/rooms/${roomId}/state`;
-
+        
         let isFinished = false;
         let isPaused = false;
         let localGlobalRem = 0;
         let localPhaseRem = 0;
-        let currentRoomQuestionId = null;
-        let currentTimerPhase = null;
 
-        function toSeconds(value) {
-            const seconds = Number.parseInt(String(value).replace(/s/gi, ''), 10);
-            return Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+        function formatSeconds(val) {
+            let num = parseInt(val, 10);
+            if (isNaN(num) || num < 0) num = 0;
+            return num;
         }
 
-        function formatSeconds(value) {
-            return `${toSeconds(value)}s`;
-        }
-
-        // LOCAL INTERPOLATION COUNTDOWN (Jalan per 1000ms secara mulus)
+        // LOCAL COUNTDOWN INTERPOLATION
         setInterval(() => {
             if (!isPaused && !isFinished) {
                 if (localGlobalRem > 0) {
                     localGlobalRem--;
                     const globalEl = document.getElementById('global-timer-seconds');
-                    if (globalEl) globalEl.innerText = formatSeconds(localGlobalRem);
+                    if (globalEl) globalEl.innerText = localGlobalRem + 's';
                 }
                 if (localPhaseRem > 0) {
                     localPhaseRem--;
                     const phaseEl = document.getElementById('phase-timer-seconds');
-                    if (phaseEl) phaseEl.innerText = toSeconds(localPhaseRem);
+                    if (phaseEl) phaseEl.innerText = localPhaseRem;
                 }
             }
         }, 1000);
 
-        // FETCH STATE POLLING (Re-sync dari server per 300ms)
-        async function fetchRoomState() {
-            if (isFinished) return;
-
+        // INITIAL FETCH STATE (1x saat halaman pertama dimuat)
+        async function loadInitialState() {
             try {
-                const response = await fetch(apiEndpoint);
-                if (!response.ok) return;
-                
-                const data = await response.json();
-
-                if (data.status === 'success') {
-                    if (data.room && data.room.status === 'finished') {
-                        isFinished = true;
-                        renderWinnerOverlay(data.leaderboard || []);
-                        return;
-                    }
-
-                    renderQuestion(data.active_question);
-                    renderLeaderboard(data.leaderboard || []);
-                }
-            } catch (error) {
-                console.error("Error fetching state:", error);
+                const res = await fetch(`/api/rooms/${roomId}/state`);
+                if (!res.ok) return;
+                const data = await res.json();
+                handleStateUpdate(data);
+            } catch (err) {
+                console.error("Failed to load initial state:", err);
             }
+        }
+
+        function handleStateUpdate(data) {
+            if (!data || data.status !== 'success') return;
+
+            if (data.room && data.room.status === 'finished') {
+                isFinished = true;
+                renderWinnerOverlay(data.leaderboard || []);
+                return;
+            }
+
+            renderQuestion(data.active_question);
+            renderLeaderboard(data.leaderboard || []);
         }
 
         function renderQuestion(activeQuestion) {
@@ -142,34 +136,17 @@
             const pausedIndicator = document.getElementById('paused-indicator');
 
             if (activeQuestion) {
-                const isSameRunningTimer = currentRoomQuestionId === activeQuestion.room_question_id
-                    && currentTimerPhase === activeQuestion.timer_phase
-                    && !isPaused
-                    && !activeQuestion.is_paused;
-                const serverGlobalRem = toSeconds(activeQuestion.global_remaining_seconds);
-                const serverPhaseRem = toSeconds(activeQuestion.phase_remaining_seconds);
-
-                // Jangan biarkan polling dengan nilai integer yang masih lebih besar
-                // menghidupkan kembali angka countdown yang sudah turun di browser.
                 isPaused = activeQuestion.is_paused;
-                localGlobalRem = isSameRunningTimer
-                    ? Math.min(localGlobalRem, serverGlobalRem)
-                    : serverGlobalRem;
-                localPhaseRem = isSameRunningTimer
-                    ? Math.min(localPhaseRem, serverPhaseRem)
-                    : serverPhaseRem;
-                currentRoomQuestionId = activeQuestion.room_question_id;
-                currentTimerPhase = activeQuestion.timer_phase;
+                localGlobalRem = formatSeconds(activeQuestion.global_remaining_seconds);
+                localPhaseRem = formatSeconds(activeQuestion.phase_remaining_seconds);
 
                 priceEl.innerText = `${activeQuestion.price} Pts`;
 
-                // Update Display Global Timer
                 if (globalContainer && globalSeconds) {
                     globalContainer.classList.remove('hidden');
-                    globalSeconds.innerText = formatSeconds(localGlobalRem);
+                    globalSeconds.innerText = `${localGlobalRem}s`;
                 }
 
-                // Update Indicator Paused
                 if (pausedIndicator) {
                     if (isPaused) {
                         pausedIndicator.classList.remove('hidden');
@@ -178,7 +155,6 @@
                     }
                 }
 
-                // Render per Fase
                 if (activeQuestion.timer_phase === 'papar') {
                     if (phaseTimerBadge) phaseTimerBadge.classList.add('hidden');
                     phaseBadge.innerText = "FASE 1: PAPAR SOAL";
@@ -196,7 +172,7 @@
                 } else if (activeQuestion.timer_phase === 'menjawab') {
                     if (phaseTimerBadge && phaseTimerSeconds) {
                         phaseTimerBadge.classList.remove('hidden');
-                        phaseTimerSeconds.innerText = toSeconds(localPhaseRem);
+                        phaseTimerSeconds.innerText = localPhaseRem;
                     }
                     phaseBadge.innerText = "FASE 2: WAKTU MENJAWAB";
                     phaseBadge.className = "px-4 py-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 text-sm font-black rounded-full uppercase";
@@ -211,7 +187,7 @@
                 } else if (activeQuestion.timer_phase === 'operan') {
                     if (phaseTimerBadge && phaseTimerSeconds) {
                         phaseTimerBadge.classList.remove('hidden');
-                        phaseTimerSeconds.innerText = toSeconds(localPhaseRem);
+                        phaseTimerSeconds.innerText = localPhaseRem;
                     }
                     phaseBadge.innerText = "FASE 3: MODE OPERAN REBUTAN ⚡";
                     phaseBadge.className = "px-4 py-1.5 bg-rose-500/20 text-rose-400 border border-rose-500/30 text-sm font-black rounded-full uppercase animate-bounce";
@@ -227,11 +203,6 @@
                 if (globalContainer) globalContainer.classList.add('hidden');
                 if (phaseTimerBadge) phaseTimerBadge.classList.add('hidden');
                 if (pausedIndicator) pausedIndicator.classList.add('hidden');
-
-                localGlobalRem = 0;
-                localPhaseRem = 0;
-                currentRoomQuestionId = null;
-                currentTimerPhase = null;
                 
                 phaseBadge.innerText = "SOAL AKTIF";
                 phaseBadge.className = "px-4 py-1.5 bg-pink-500/20 text-pink-400 border border-pink-500/30 text-sm font-black rounded-full uppercase";
@@ -305,8 +276,19 @@
             `;
         }
 
-        setInterval(fetchRoomState, 300);
-        fetchRoomState();
+        // LOAD STATE AWAL
+        loadInitialState();
+
+        // CONNECT TO PUBLIC CHANNEL
+        console.log('Echo listening on channel: stage-room.' + roomId);
+
+        window.Echo.channel(`stage-room.${roomId}`)
+            .listen('.room.state.updated', (e) => {
+                console.log('[REVERB BROADCAST RECEIVED]:', e);
+                if (e && e.payload) {
+                    handleStateUpdate(e.payload);
+                }
+            });
     </script>
 </body>
 </html>

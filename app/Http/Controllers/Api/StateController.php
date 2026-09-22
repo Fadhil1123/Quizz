@@ -74,12 +74,12 @@ class StateController extends Controller
                 // AUTO-TRANSITION SUB-FASE (Jika Global Timer masih ada tapi Timer Fase Habis)
                 elseif ($phaseRemaining <= 0 && $activeRoomQuestion->timer_phase !== 'none') {
                     if ($activeRoomQuestion->timer_phase === 'menjawab') {
-                        // Waktu pembeli habis -> Pindah ke Operan (10s + 2s buffer latensi)
+                        // Waktu pembeli habis -> Pindah ke Operan (13 detik)
                         $activeRoomQuestion->update([
                             'timer_phase' => 'operan',
-                            'timer_expires_at' => Carbon::now()->addSeconds(12),
+                            'timer_expires_at' => Carbon::now()->addSeconds(13),
                         ]);
-                        $phaseRemaining = 12;
+                        $phaseRemaining = 13;
                     } elseif ($activeRoomQuestion->timer_phase === 'operan' || $activeRoomQuestion->timer_phase === 'papar') {
                         // Waktu operan/papar habis -> Tutup soal
                         $activeRoomQuestion->update([

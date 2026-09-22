@@ -222,7 +222,7 @@
                                         @csrf
                                         <input type="hidden" name="room_question_id" value="{{ $rq->id }}">
                                         <button class="px-3 py-1.5 bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs rounded-lg shadow transition-all">
-                                            Tampilkan 🚀
+                                            Tampilkan 
                                         </button>
                                     </form>
                                 @else

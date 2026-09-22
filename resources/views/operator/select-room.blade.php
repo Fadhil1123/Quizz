@@ -26,7 +26,7 @@
                         <div class="text-xs text-slate-500 uppercase font-mono mt-0.5">Status: {{ $room->status }}</div>
                     </div>
                     <span class="px-3 py-1 bg-pink-600 group-hover:bg-pink-500 text-white font-bold text-xs rounded-xl shadow">
-                        Buka Stage 🖥️
+                        Buka Stage 
                     </span>
                 </a>
             @empty
