@@ -108,7 +108,7 @@
 
             <!-- Submit Button -->
             <button type="submit" class="w-full py-3.5 bg-pink-600 hover:bg-pink-500 text-white font-black text-sm rounded-2xl shadow-xl shadow-pink-600/20 transition-all">
-                Simpan & Buat Ruangan Pertandingan 🚀
+                Simpan & Buat Ruangan Pertandingan
             </button>
         </form>
 
