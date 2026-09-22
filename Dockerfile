@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     git \
     curl
 
-RUN docker-php-ext-install pdo_mysql mbstring exim bcmath gd
+RUN docker-php-ext-install pdo_mysql mbstring bcmath gd
 
 # Aktifkan mod_rewrite Apache untuk Laravel
 RUN a2enmod rewrite
