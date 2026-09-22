@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Events\RoomStateUpdated;
-use App\Http\Controllers\Api\StateController;
 use App\Http\Controllers\Controller;
 use App\Models\MasterQuestion;
 use App\Models\Room;
@@ -277,20 +276,10 @@ class RoomController extends Controller
     }
 
     /**
-     * Memancarkan data kuis terbaru ke WebSocket Laravel Reverb secara otomatis.
+     * Memasukkan state kuis terbaru ke queue broadcast.
      */
-    private function broadcastRoomState($roomId)
+    private function broadcastRoomState($roomId): void
     {
-        try {
-            $stateController = new StateController;
-            $response = $stateController->getState($roomId);
-            $data = json_decode($response->getContent(), true);
-
-            if (isset($data['status']) && $data['status'] === 'success') {
-                broadcast(new RoomStateUpdated($roomId, $data));
-            }
-        } catch (\Exception $e) {
-            \Log::error('Failed to broadcast Reverb event: '.$e->getMessage());
-        }
+        broadcast(new RoomStateUpdated($roomId));
     }
 }

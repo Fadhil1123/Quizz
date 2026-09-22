@@ -356,7 +356,15 @@
                     if (!response.ok) throw new Error('Request gagal diproses.');
                     return response.json();
                 })
-                .then(() => window.location.reload())
+                .then(async () => {
+                    await syncAdminPanel();
+
+                    if (submitButton && submitButton.isConnected) {
+                        submitButton.disabled = false;
+                        submitButton.innerText = submitButton.dataset.originalText;
+                        submitButton.classList.remove('opacity-60', 'cursor-wait');
+                    }
+                })
                 .catch(error => {
                     console.error('Error executing admin action:', error);
                     if (submitButton) {
