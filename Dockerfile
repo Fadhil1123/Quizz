@@ -1,6 +1,6 @@
-FROM php:8.2-apache
+FROM php:8.2-cli
 
-# Install ekstensi & dependensi sistem
+# Install dependensi sistem dan ekstensi PHP
 RUN apt-get update && apt-get install -y \
     libpng-dev \
     libonig-dev \
@@ -12,28 +12,18 @@ RUN apt-get update && apt-get install -y \
 
 RUN docker-php-ext-install pdo_mysql mbstring bcmath gd
 
-# Fix MPM conflict: Disable all conflicting MPM modules first, then enable mpm_prefork
-RUN a2dismod mpm_event mpm_worker mpm_prefork 2>/dev/null || true && \
-    a2enmod mpm_prefork && \
-    a2enmod rewrite
-
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 COPY . .
 
-# Set Document Root ke folder public Laravel
-ENV APACHE_DOCUMENT_ROOT /var/www/html/public
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/conf-available/*.conf
-
-# Install dependencies composer
+# Install paket Composer
 RUN composer install --no-dev --optimize-autoloader
 
-# Atur hak akses folder storage & cache
-RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
+# Set hak akses folder storage & cache Laravel
+RUN chmod -R 775 storage bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache
 
-EXPOSE 80
-CMD ["apache2-foreground"]
-
+# Jalankan server bawaan PHP langsung menembak $PORT dari Railway
+CMD php artisan serve --host=0.0.0.0 --port=${PORT:-8080}
