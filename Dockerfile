@@ -12,9 +12,8 @@ RUN apt-get update && apt-get install -y \
 
 RUN docker-php-ext-install pdo_mysql mbstring bcmath gd
 
-# Fix MPM conflict: Remove all conflicting MPM modules from mods-enabled
-# and ensure only mpm_prefork is loaded
-RUN rm -f /etc/apache2/mods-enabled/mpm_*.load && \
+# Fix MPM conflict: Disable all conflicting MPM modules first, then enable mpm_prefork
+RUN a2dismod mpm_event mpm_worker mpm_prefork 2>/dev/null || true && \
     a2enmod mpm_prefork && \
     a2enmod rewrite
 
