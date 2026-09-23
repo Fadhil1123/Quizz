@@ -12,12 +12,11 @@ RUN apt-get update && apt-get install -y \
 
 RUN docker-php-ext-install pdo_mysql mbstring bcmath gd
 
-# Aktifkan mod_rewrite Apache
-RUN a2enmod rewrite
-
-# Disable conflicting MPM modules and ensure only one is active
-RUN a2dismod mpm_event mpm_worker || true
-RUN a2enmod mpm_prefork
+# Fix MPM conflict: Remove all conflicting MPM modules from mods-enabled
+# and ensure only mpm_prefork is loaded
+RUN rm -f /etc/apache2/mods-enabled/mpm_*.load && \
+    a2enmod mpm_prefork && \
+    a2enmod rewrite
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
